@@ -1,14 +1,17 @@
-// src/index.ts
 import dotenv from 'dotenv';
 import app from './app';
 import { logger } from './utils/logger';
 import { validateEnvironment } from './config/environment';
+import { initializeNetworkServices } from './networks';
 
 // Charger les variables d'environnement
 dotenv.config();
 
 // Valider l'environnement
 validateEnvironment();
+
+// Initialiser les services réseau
+initializeNetworkServices();
 
 const PORT = process.env.PORT || 3000;
 

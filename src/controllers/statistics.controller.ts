@@ -1,8 +1,11 @@
-// src/controllers/statistics.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import { xanoService } from '../services/xano.service';
 import { networkRegistry } from '../services/base-network.service';
-import { ApiResponse, StatisticsRequest, StatisticsPeriod } from '../interfaces/common';
+import { 
+  ApiResponse, 
+  StatisticsRequest, 
+  StatisticsPeriod 
+} from '../interfaces/common';
 import { logger } from '../utils/logger';
 import { ValidationError } from '../utils/errors';
 
@@ -125,7 +128,7 @@ export class StatisticsController {
 
       // Récupérer les posts à synchroniser
       const posts = postIds.length > 0 
-        ? await Promise.all(postIds.map(id => xanoService.getPost(id)))
+        ? await Promise.all(postIds.map((id: string) => xanoService.getPost(id)))
         : await xanoService.getPostsByAccount(accountId, 100, 0);
 
       // Récupérer les stats pour chaque post

@@ -2,7 +2,11 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
 import { ValidationError } from '../utils/errors';
-import { SocialNetworkType, MediaType } from '../interfaces/common';
+import { 
+  SocialNetworkType, 
+  MediaType, 
+  StatisticsPeriod 
+} from '../interfaces/common';
 
 // Schémas de validation
 const postingSchema = Joi.object({

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import postingRoutes from './posting.routes';
 import messagingRoutes from './messaging.routes';
 import statisticsRoutes from './statistics.routes';
-import { networkRegistry } from '../services/base-network.service';
+import { networkRegistry } from '../networks';
 import { ApiResponse } from '../interfaces/common';
 
 const router = Router();
@@ -37,7 +37,7 @@ router.get('/', (req, res) => {
 
 // Route de statut des services
 router.get('/status', (req, res) => {
-  const services = networkRegistry.getAll().map(service => ({
+  const services = networkRegistry.getAll().map((service: any) => ({
     network: service.getNetworkType(),
     capabilities: service.getCapabilities()
   }));

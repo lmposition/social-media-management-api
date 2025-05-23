@@ -2,7 +2,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { xanoService } from '../services/xano.service';
 import { networkRegistry } from '../services/base-network.service';
-import { ApiResponse, PostingRequest, SocialNetworkType } from '../interfaces/common';
+import { 
+  ApiResponse, 
+  PostingRequest, 
+  SocialNetworkType 
+} from '../interfaces/common';
 import { logger } from '../utils/logger';
 import { ValidationError, NotFoundError, NetworkError } from '../utils/errors';
 

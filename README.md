@@ -28,18 +28,44 @@ Cette API fournit une base scalable pour gérer plusieurs réseaux sociaux de ma
 ```
 social-media-management-api/
 ├── src/
-│   ├── index.ts                     # Point d'entrée
+│   ├── index.ts                     # Point d'entrée de l'application
 │   ├── app.ts                       # Configuration Express
-│   ├── config/                      # Configuration Xano & environnement
-│   ├── interfaces/                  # Types TypeScript communes
-│   ├── services/                    # Services Xano & base réseaux
-│   ├── controllers/                 # Contrôleurs API
-│   ├── routes/                      # Routes Express
-│   ├── middleware/                  # Auth, validation, erreurs
-│   ├── utils/                       # Logger, erreurs, validators
-│   └── networks/                    # 🔮 Modules réseaux (futurs)
-├── tests/                           # Tests unitaires & intégration
-└── logs/                           # Fichiers de logs
+│   ├── config/
+│   │   ├── database.ts              # Configuration Xano
+│   │   └── environment.ts           # Variables d'environnement
+│   ├── interfaces/
+│   │   └── common.ts                # Toutes les interfaces TypeScript
+│   ├── services/
+│   │   ├── xano.service.ts          # Service d'intégration Xano
+│   │   └── base-network.service.ts  # Service de base pour réseaux sociaux
+│   ├── controllers/
+│   │   ├── posting.controller.ts    # Contrôleur pour posting
+│   │   ├── messaging.controller.ts  # Contrôleur pour messaging
+│   │   └── statistics.controller.ts # Contrôleur pour statistiques
+│   ├── routes/
+│   │   ├── index.ts                 # Routes principales
+│   │   ├── posting.routes.ts        # Routes posting
+│   │   ├── messaging.routes.ts      # Routes messaging
+│   │   └── statistics.routes.ts     # Routes statistiques
+│   ├── middleware/
+│   │   ├── auth.middleware.ts       # Middleware d'authentification
+│   │   ├── validation.middleware.ts # Middleware de validation
+│   │   └── error.middleware.ts      # Middleware de gestion d'erreurs
+│   ├── utils/
+│   │   ├── logger.ts                # Configuration du logger
+│   │   ├── errors.ts                # Classes d'erreurs personnalisées
+│   │   └── validators.ts            # Schémas de validation Joi
+│   └── networks/
+│       └── README.md                # Documentation pour ajout futurs réseaux
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── .env.example
+├── .gitignore
+├── tsconfig.json
+├── jest.config.js
+├── .eslintrc.js
+└── README.md                        # Fichiers de logs
 ```
 
 ## 🚦 Endpoints API
