@@ -1,174 +1,85 @@
-// src/controllers/posting.controller.ts
+// src/controllers/messaging.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import { xanoService } from '../services/xano.service';
 import { networkRegistry } from '../services/base-network.service';
 import { 
   ApiResponse, 
-  PostingRequest, 
-  SocialNetworkType 
+  MessagingRequest 
 } from '../interfaces/common';
 import { logger } from '../utils/logger';
-import { ValidationError, NotFoundError, NetworkError } from '../utils/errors';
+import { ValidationError } from '../utils/errors';
 
-export class PostingController {
+export class MessagingController {
   // ============================================================================
-  // PUBLIER UN POST
+  // ENVOYER UN MESSAGE
   // ============================================================================
-  async publishPost(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async sendMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { accountId } = req.params;
-      const postingRequest: PostingRequest = req.body;
+      const messagingRequest: MessagingRequest = req.body;
 
       // Récupérer le compte depuis Xano
       const account = await xanoService.getNetworkAccount(accountId);
       
-      // Vérifier que le réseau est supporté
-      if (!networkRegistry.isSupported(account.networkType)) {
-        throw new ValidationError(`Réseau ${account.networkType} non supporté`);
-      }
-
       // Obtenir le service réseau approprié
       const networkService = networkRegistry.get(account.networkType);
 
-      // Vérifier les capacités de posting
-      if (!networkService.supportsPosting()) {
-        throw new ValidationError(`Le posting n'est pas supporté pour ${account.networkType}`);
+      // Vérifier les capacités de messaging
+      if (!networkService.supportsMessaging() || !networkService.sendMessage) {
+        throw new ValidationError(`Le messaging n'est pas supporté pour ${account.networkType}`);
       }
 
-      // Publier le post
-      const result = await networkService.publishPost(account, postingRequest);
+      // Envoyer le message
+      const result = await networkService.sendMessage(account, messagingRequest);
 
-      // Sauvegarder le post dans Xano
-      const post = {
-        id: result.postId,
+      // Sauvegarder le message dans Xano
+      const message = {
+        id: result.messageId,
         networkType: account.networkType,
         accountId: account.id,
-        content: postingRequest.content,
-        status: result.status,
-        networkPostId: result.networkPostId,
-        publishedAt: result.publishedAt,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        conversationId: result.conversationId,
+        senderId: account.accountId,
+        recipientId: messagingRequest.recipientId,
+        content: messagingRequest.content,
+        isIncoming: false,
+        isRead: true,
+        sentAt: result.sentAt,
+        networkMessageId: result.networkMessageId
       };
 
-      await xanoService.savePosts([post]);
+      await xanoService.saveMessages([message]);
 
       const response: ApiResponse = {
         success: true,
         data: result,
-        message: 'Post publié avec succès',
+        message: 'Message envoyé avec succès',
         timestamp: new Date().toISOString()
       };
 
       res.status(201).json(response);
-      logger.info(`Post publié: ${result.postId} sur ${account.networkType}`);
+      logger.info(`Message envoyé: ${result.messageId} sur ${account.networkType}`);
     } catch (error) {
       next(error);
     }
   }
 
   // ============================================================================
-  // SUPPRIMER UN POST
+  // RÉCUPÉRER LES MESSAGES D'UN COMPTE
   // ============================================================================
-  async deletePost(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { postId } = req.params;
-
-      // Récupérer le post depuis Xano
-      const post = await xanoService.getPost(postId);
-      
-      // Récupérer le compte
-      const account = await xanoService.getNetworkAccount(post.accountId);
-
-      // Obtenir le service réseau
-      const networkService = networkRegistry.get(account.networkType);
-
-      // Supprimer sur le réseau social
-      if (post.networkPostId) {
-        await networkService.deletePost(account, post.networkPostId);
-      }
-
-      // Supprimer de Xano
-      await xanoService.deletePost(postId);
-
-      const response: ApiResponse = {
-        success: true,
-        message: 'Post supprimé avec succès',
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
-      logger.info(`Post supprimé: ${postId}`);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // ============================================================================
-  // ÉDITER UN POST
-  // ============================================================================
-  async editPost(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { postId } = req.params;
-      const postingRequest: PostingRequest = req.body;
-
-      // Récupérer le post depuis Xano
-      const post = await xanoService.getPost(postId);
-      
-      // Récupérer le compte
-      const account = await xanoService.getNetworkAccount(post.accountId);
-
-      // Obtenir le service réseau
-      const networkService = networkRegistry.get(account.networkType);
-
-      // Vérifier si l'édition est supportée
-      if (!networkService.getCapabilities().posting.supportsEditing) {
-        throw new ValidationError(`L'édition n'est pas supportée pour ${account.networkType}`);
-      }
-
-      // Éditer sur le réseau social
-      let result;
-      if (post.networkPostId) {
-        result = await networkService.editPost(account, post.networkPostId, postingRequest);
-      }
-
-      // Mettre à jour dans Xano
-      const updatedPost = await xanoService.updatePost(postId, {
-        content: postingRequest.content,
-        updatedAt: new Date()
-      });
-
-      const response: ApiResponse = {
-        success: true,
-        data: { post: updatedPost, networkResult: result },
-        message: 'Post modifié avec succès',
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
-      logger.info(`Post modifié: ${postId}`);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // ============================================================================
-  // RÉCUPÉRER LES POSTS D'UN COMPTE
-  // ============================================================================
-  async getPostsByAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getMessagesByAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { accountId } = req.params;
       const { limit = 50, offset = 0 } = req.query;
 
-      const posts = await xanoService.getPostsByAccount(
-        accountId, 
-        parseInt(limit as string), 
+      const messages = await xanoService.getMessagesByAccount(
+        accountId,
+        parseInt(limit as string),
         parseInt(offset as string)
       );
 
       const response: ApiResponse = {
         success: true,
-        data: posts,
+        data: messages,
         timestamp: new Date().toISOString()
       };
 
@@ -179,25 +90,73 @@ export class PostingController {
   }
 
   // ============================================================================
-  // RÉCUPÉRER UN POST SPÉCIFIQUE
+  // MARQUER UN MESSAGE COMME LU
   // ============================================================================
-  async getPost(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async markAsRead(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { postId } = req.params;
+      const { messageId } = req.params;
 
-      const post = await xanoService.getPost(postId);
+      await xanoService.markMessageAsRead(messageId);
 
       const response: ApiResponse = {
         success: true,
-        data: post,
+        message: 'Message marqué comme lu',
         timestamp: new Date().toISOString()
       };
 
       res.status(200).json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ============================================================================
+  // SYNCHRONISER LES MESSAGES DEPUIS LE RÉSEAU
+  // ============================================================================
+  async syncMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { accountId } = req.params;
+
+      // Récupérer le compte
+      const account = await xanoService.getNetworkAccount(accountId);
+      
+      // Obtenir le service réseau
+      const networkService = networkRegistry.get(account.networkType);
+
+      // Vérifier les capacités
+      if (!networkService.supportsMessaging() || !networkService.getMessages) {
+        throw new ValidationError(`La synchronisation des messages n'est pas supportée pour ${account.networkType}`);
+      }
+
+      // Récupérer les messages depuis le réseau
+      const networkMessages = await networkService.getMessages(account);
+
+      // Convertir et sauvegarder dans Xano
+      const messages = networkMessages.map((msg: any) => ({
+        // Mapping spécifique selon le format de chaque réseau
+        // À adapter selon les réponses de chaque API
+        ...msg,
+        accountId: account.id,
+        networkType: account.networkType
+      }));
+
+      if (messages.length > 0) {
+        await xanoService.saveMessages(messages);
+      }
+
+      const response: ApiResponse = {
+        success: true,
+        data: { synchronized: messages.length },
+        message: `${messages.length} messages synchronisés`,
+        timestamp: new Date().toISOString()
+      };
+
+      res.status(200).json(response);
+      logger.info(`Messages synchronisés: ${messages.length} pour ${accountId}`);
     } catch (error) {
       next(error);
     }
   }
 }
 
-export const postingController = new PostingController();
+export const messagingController = new MessagingController();

@@ -1,173 +1,235 @@
-import { Request, Response, NextFunction } from 'express';
-import { xanoService } from '../services/xano.service';
-import { networkRegistry } from '../services/base-network.service';
+// src/services/xano.service.ts
+import { xanoClient } from '../config/database';
 import { 
-  ApiResponse, 
-  StatisticsRequest, 
-  StatisticsPeriod 
+  NetworkAccount, 
+  Post, 
+  Message, 
+  PostStatistics, 
+  AccountStatistics 
 } from '../interfaces/common';
 import { logger } from '../utils/logger';
-import { ValidationError } from '../utils/errors';
+import { XanoServiceError } from '../utils/errors';
 
-export class StatisticsController {
+export class XanoService {
   // ============================================================================
-  // RÉCUPÉRER LES STATISTIQUES D'UN POST
+  // GESTION DES COMPTES RÉSEAUX SOCIAUX
   // ============================================================================
-  async getPostStatistics(req: Request, res: Response, next: NextFunction): Promise<void> {
+
+  async getNetworkAccounts(userId: string): Promise<NetworkAccount[]> {
     try {
-      const { postId } = req.params;
-      const { refresh = false } = req.query;
-
-      // Récupérer le post
-      const post = await xanoService.getPost(postId);
-      
-      // Si refresh demandé, récupérer depuis le réseau
-      if (refresh === 'true') {
-        const account = await xanoService.getNetworkAccount(post.accountId);
-        const networkService = networkRegistry.get(account.networkType);
-
-        if (networkService.supportsStatistics() && post.networkPostId) {
-          const networkStats = await networkService.getPostStatistics(account, post.networkPostId);
-          
-          // Sauvegarder les nouvelles stats dans Xano
-          const postStats = {
-            postId: post.id,
-            networkPostId: post.networkPostId,
-            networkType: account.networkType,
-            metrics: networkStats,
-            lastUpdated: new Date()
-          };
-
-          await xanoService.savePostStatistics([postStats]);
-        }
-      }
-
-      // Récupérer les stats depuis Xano
-      const statistics = await xanoService.getPostStatistics(postId);
-
-      const response: ApiResponse = {
-        success: true,
-        data: statistics,
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
+      return await xanoClient.get<NetworkAccount[]>(`/users/${userId}/accounts`);
     } catch (error) {
-      next(error);
+      logger.error('Erreur récupération comptes:', error);
+      throw new XanoServiceError('Impossible de récupérer les comptes');
+    }
+  }
+
+  async getNetworkAccount(accountId: string): Promise<NetworkAccount> {
+    try {
+      return await xanoClient.get<NetworkAccount>(`/accounts/${accountId}`);
+    } catch (error) {
+      logger.error('Erreur récupération compte:', error);
+      throw new XanoServiceError('Compte non trouvé');
+    }
+  }
+
+  async saveNetworkAccount(account: Partial<NetworkAccount>): Promise<NetworkAccount> {
+    try {
+      if (account.id) {
+        return await xanoClient.put<NetworkAccount>(`/accounts/${account.id}`, account);
+      } else {
+        return await xanoClient.post<NetworkAccount>('/accounts', account);
+      }
+    } catch (error) {
+      logger.error('Erreur sauvegarde compte:', error);
+      throw new XanoServiceError('Impossible de sauvegarder le compte');
+    }
+  }
+
+  async deleteNetworkAccount(accountId: string): Promise<void> {
+    try {
+      await xanoClient.delete(`/accounts/${accountId}`);
+    } catch (error) {
+      logger.error('Erreur suppression compte:', error);
+      throw new XanoServiceError('Impossible de supprimer le compte');
     }
   }
 
   // ============================================================================
-  // RÉCUPÉRER LES STATISTIQUES D'UN COMPTE
+  // GESTION DES POSTS
   // ============================================================================
-  async getAccountStatistics(req: Request, res: Response, next: NextFunction): Promise<void> {
+
+  async savePosts(posts: Post[]): Promise<Post[]> {
     try {
-      const { accountId } = req.params;
-      const { 
-        period = StatisticsPeriod.MONTHLY, 
-        refresh = false 
-      } = req.query;
-
-      const statisticsRequest: StatisticsRequest = {
-        accountId,
-        period: period as StatisticsPeriod
-      };
-
-      // Si refresh demandé, récupérer depuis le réseau
-      if (refresh === 'true') {
-        const account = await xanoService.getNetworkAccount(accountId);
-        const networkService = networkRegistry.get(account.networkType);
-
-        if (networkService.supportsStatistics()) {
-          const networkStats = await networkService.getAccountStatistics(account, statisticsRequest);
-          
-          // Sauvegarder les nouvelles stats dans Xano
-          const accountStats = {
-            accountId: account.id,
-            networkType: account.networkType,
-            metrics: networkStats,
-            period: period as StatisticsPeriod,
-            lastUpdated: new Date()
-          };
-
-          await xanoService.saveAccountStatistics([accountStats]);
-        }
-      }
-
-      // Récupérer les stats depuis Xano
-      const statistics = await xanoService.getAccountStatistics(accountId);
-
-      const response: ApiResponse = {
-        success: true,
-        data: statistics,
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
+      return await xanoClient.post<Post[]>('/posts/batch', { posts });
     } catch (error) {
-      next(error);
+      logger.error('Erreur sauvegarde posts:', error);
+      throw new XanoServiceError('Impossible de sauvegarder les posts');
+    }
+  }
+
+  async getPost(postId: string): Promise<Post> {
+    try {
+      return await xanoClient.get<Post>(`/posts/${postId}`);
+    } catch (error) {
+      logger.error('Erreur récupération post:', error);
+      throw new XanoServiceError('Post non trouvé');
+    }
+  }
+
+  async updatePost(postId: string, updateData: Partial<Post>): Promise<Post> {
+    try {
+      return await xanoClient.put<Post>(`/posts/${postId}`, updateData);
+    } catch (error) {
+      logger.error('Erreur mise à jour post:', error);
+      throw new XanoServiceError('Impossible de mettre à jour le post');
+    }
+  }
+
+  async deletePost(postId: string): Promise<void> {
+    try {
+      await xanoClient.delete(`/posts/${postId}`);
+    } catch (error) {
+      logger.error('Erreur suppression post:', error);
+      throw new XanoServiceError('Impossible de supprimer le post');
+    }
+  }
+
+  async getPostsByAccount(accountId: string, limit = 50, offset = 0): Promise<Post[]> {
+    try {
+      return await xanoClient.get<Post[]>(`/accounts/${accountId}/posts`, {
+        params: { limit, offset }
+      });
+    } catch (error) {
+      logger.error('Erreur récupération posts compte:', error);
+      throw new XanoServiceError('Impossible de récupérer les posts');
     }
   }
 
   // ============================================================================
-  // SYNCHRONISER LES STATISTIQUES DE PLUSIEURS POSTS
+  // GESTION DES MESSAGES
   // ============================================================================
-  async syncPostsStatistics(req: Request, res: Response, next: NextFunction): Promise<void> {
+
+  async saveMessages(messages: Message[]): Promise<Message[]> {
     try {
-      const { accountId } = req.params;
-      const { postIds = [] } = req.body;
-
-      const account = await xanoService.getNetworkAccount(accountId);
-      const networkService = networkRegistry.get(account.networkType);
-
-      if (!networkService.supportsStatistics()) {
-        throw new ValidationError(`Les statistiques ne sont pas supportées pour ${account.networkType}`);
-      }
-
-      const statisticsToSave = [];
-
-      // Récupérer les posts à synchroniser
-      const posts = postIds.length > 0 
-        ? await Promise.all(postIds.map((id: string) => xanoService.getPost(id)))
-        : await xanoService.getPostsByAccount(accountId, 100, 0);
-
-      // Récupérer les stats pour chaque post
-      for (const post of posts) {
-        if (post.networkPostId) {
-          try {
-            const networkStats = await networkService.getPostStatistics(account, post.networkPostId);
-            
-            statisticsToSave.push({
-              postId: post.id,
-              networkPostId: post.networkPostId,
-              networkType: account.networkType,
-              metrics: networkStats,
-              lastUpdated: new Date()
-            });
-          } catch (error) {
-            logger.warn(`Erreur récupération stats pour post ${post.id}:`, error);
-          }
-        }
-      }
-
-      // Sauvegarder toutes les stats
-      if (statisticsToSave.length > 0) {
-        await xanoService.savePostStatistics(statisticsToSave);
-      }
-
-      const response: ApiResponse = {
-        success: true,
-        data: { synchronized: statisticsToSave.length },
-        message: `${statisticsToSave.length} statistiques synchronisées`,
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
-      logger.info(`Stats synchronisées: ${statisticsToSave.length} posts pour ${accountId}`);
+      return await xanoClient.post<Message[]>('/messages/batch', { messages });
     } catch (error) {
-      next(error);
+      logger.error('Erreur sauvegarde messages:', error);
+      throw new XanoServiceError('Impossible de sauvegarder les messages');
+    }
+  }
+
+  async getMessagesByAccount(accountId: string, limit = 50, offset = 0): Promise<Message[]> {
+    try {
+      return await xanoClient.get<Message[]>(`/accounts/${accountId}/messages`, {
+        params: { limit, offset }
+      });
+    } catch (error) {
+      logger.error('Erreur récupération messages:', error);
+      throw new XanoServiceError('Impossible de récupérer les messages');
+    }
+  }
+
+  async markMessageAsRead(messageId: string): Promise<void> {
+    try {
+      await xanoClient.put(`/messages/${messageId}/read`);
+    } catch (error) {
+      logger.error('Erreur marquage message lu:', error);
+      throw new XanoServiceError('Impossible de marquer le message comme lu');
+    }
+  }
+
+  // ============================================================================
+  // GESTION DES STATISTIQUES
+  // ============================================================================
+
+  async savePostStatistics(statistics: PostStatistics[]): Promise<PostStatistics[]> {
+    try {
+      return await xanoClient.post<PostStatistics[]>('/statistics/posts/batch', { statistics });
+    } catch (error) {
+      logger.error('Erreur sauvegarde statistiques posts:', error);
+      throw new XanoServiceError('Impossible de sauvegarder les statistiques');
+    }
+  }
+
+  async saveAccountStatistics(statistics: AccountStatistics[]): Promise<AccountStatistics[]> {
+    try {
+      return await xanoClient.post<AccountStatistics[]>('/statistics/accounts/batch', { statistics });
+    } catch (error) {
+      logger.error('Erreur sauvegarde statistiques comptes:', error);
+      throw new XanoServiceError('Impossible de sauvegarder les statistiques');
+    }
+  }
+
+  async getPostStatistics(postId: string): Promise<PostStatistics | null> {
+    try {
+      return await xanoClient.get<PostStatistics>(`/posts/${postId}/statistics`);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      logger.error('Erreur récupération statistiques post:', error);
+      throw new XanoServiceError('Impossible de récupérer les statistiques');
+    }
+  }
+
+  async getAccountStatistics(accountId: string): Promise<AccountStatistics | null> {
+    try {
+      return await xanoClient.get<AccountStatistics>(`/accounts/${accountId}/statistics`);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      logger.error('Erreur récupération statistiques compte:', error);
+      throw new XanoServiceError('Impossible de récupérer les statistiques');
+    }
+  }
+
+  // ============================================================================
+  // MÉTHODES UTILITAIRES
+  // ============================================================================
+
+  async getUserAccessTokens(userId: string): Promise<Record<string, string>> {
+    try {
+      const response = await xanoClient.get<{ tokens: Record<string, string> }>(`/users/${userId}/tokens`);
+      return response.tokens;
+    } catch (error) {
+      logger.error('Erreur récupération tokens:', error);
+      throw new XanoServiceError('Impossible de récupérer les tokens');
+    }
+  }
+
+  async refreshAccountToken(accountId: string): Promise<NetworkAccount> {
+    try {
+      return await xanoClient.post<NetworkAccount>(`/accounts/${accountId}/refresh-token`);
+    } catch (error) {
+      logger.error('Erreur rafraîchissement token:', error);
+      throw new XanoServiceError('Impossible de rafraîchir le token');
+    }
+  }
+
+  async validateUserToken(token: string): Promise<{ userId: string; isValid: boolean }> {
+    try {
+      return await xanoClient.post<{ userId: string; isValid: boolean }>('/auth/validate-token', { token });
+    } catch (error) {
+      logger.error('Erreur validation token:', error);
+      throw new XanoServiceError('Impossible de valider le token');
+    }
+  }
+
+  async logActivity(userId: string, action: string, details: any): Promise<void> {
+    try {
+      await xanoClient.post('/activity-logs', {
+        userId,
+        action,
+        details,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.warn('Erreur log activité:', error);
+      // Ne pas lever d'erreur pour les logs d'activité
     }
   }
 }
 
-export const statisticsController = new StatisticsController();
+export const xanoService = new XanoService();

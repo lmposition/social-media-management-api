@@ -3,7 +3,7 @@ import { Router } from 'express';
 import postingRoutes from './posting.routes';
 import messagingRoutes from './messaging.routes';
 import statisticsRoutes from './statistics.routes';
-import { networkRegistry } from '../networks';
+import { networkRegistry } from '../services/base-network.service';
 import { ApiResponse } from '../interfaces/common';
 
 const router = Router();
