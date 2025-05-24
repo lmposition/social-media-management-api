@@ -1,64 +1,71 @@
-// src/app.ts
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import Fastify from 'fastify';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import 'dotenv/config'; // Charger les variables d'environnement
+
+import { xanoPlugin } from './plugins/xano.plugin';
+import { postgresPlugin } from './plugins/postgres.plugin';
+import { postingRoutes } from './routes/posting/index';
+import { messagingRoutes } from './routes/messaging/index';
+import { statsRoutes } from './routes/stats/index';
+import { routes } from './routes/index.js';
 import { logger } from './utils/logger';
-import { errorMiddleware } from './middleware/error.middleware';
-import routes from './routes';
 
-const app = express();
+import { commentsRoutes } from './routes/comments/index.js';
+import { easyReplyRoutes } from './routes/easy-reply/index.js';
 
-// Middlewares de sécurité
-app.use(helmet());
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true
-}));
+export async function buildApp() {
+  const fastify = Fastify({
+    logger: logger,
+    trustProxy: true
+  }).withTypeProvider<TypeBoxTypeProvider>();
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limite à 100 requêtes par IP par fenêtre
-  message: {
-    error: 'Trop de requêtes, veuillez réessayer plus tard.'
+  // Plugins de sécurité
+  await fastify.register(cors, {
+    origin: true,
+    credentials: true
+  });
+
+  await fastify.register(helmet);
+
+  await fastify.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute'
+  });
+
+  // Plugins personnalisés
+  await fastify.register(xanoPlugin);
+  await fastify.register(postgresPlugin);
+
+  // Routes
+  await fastify.register(routes);
+  await fastify.register(postingRoutes, { prefix: '/api/posting' });
+  await fastify.register(messagingRoutes, { prefix: '/api/messaging' });
+  await fastify.register(statsRoutes, { prefix: '/api/stats' });
+
+  // Route de santé
+  fastify.get('/health', async () => {
+    return { status: 'OK', timestamp: new Date().toISOString() };
+  });
+
+  return fastify;
+}
+
+async function start() {
+  try {
+    const app = await buildApp();
+    const port = Number(process.env.PORT) || 3000;
+    
+    await app.listen({ port, host: '0.0.0.0' });
+    app.log.info(`Server running on http://localhost:${port}`);
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
   }
-});
-app.use('/api', limiter);
+}
 
-// Middlewares de base
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-// Logging des requêtes
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`, {
-    ip: req.ip,
-    userAgent: req.get('User-Agent')
-  });
-  next();
-});
-
-// Routes
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
-
-app.use('/api', routes);
-
-// Middleware de gestion d'erreurs (doit être en dernier)
-app.use(errorMiddleware);
-
-// Route 404
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Route non trouvée',
-    path: req.originalUrl
-  });
-});
-
-export default app;
+if (import.meta.url === `file://${process.argv[1]}`) {
+  start();
+}

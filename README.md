@@ -1,289 +1,184 @@
-# Social Media Management API
+# Social Media Manager Backend API
 
-API backend TypeScript pour outil de gestion de réseaux sociaux avec intégration Xano.
+Backend API en **TypeScript + Fastify**, conçu pour orchestrer les interactions avec plusieurs réseaux sociaux dans un outil de gestion centralisé.  
+Il est **appelé exclusivement depuis Xano**, qui gère la base de données, les tokens et les utilisateurs.  
+🎯 Objectif : fournir une API modulaire, scalable et sécurisée **centrée sur les workspaces**, permettant la publication, la messagerie et la collecte de statistiques sociales.
 
-## 🎯 Vue d'ensemble
-
-Cette API fournit une base scalable pour gérer plusieurs réseaux sociaux de manière unifiée. Elle s'intègre avec Xano pour la persistance des données et peut facilement accueillir de nouveaux réseaux sociaux.
-
-## 📋 Fonctionnalités principales
-
-### 🚀 Architecture modulaire
-- **Séparation claire** : Chaque réseau social dans un module séparé
-- **Extensible** : Ajout facile de nouveaux réseaux
-- **Type-safe** : TypeScript avec interfaces strictes
-
-### 🔧 Trois fonctionnalités core par réseau
-1. **Posting** : Publication, suppression, édition de posts
-2. **Messaging** : Gestion des messages privés (si supporté)
-3. **Statistics** : Récupération intelligente des statistiques
-
-### 🗄️ Intégration Xano
-- **Base de données** entièrement gérée par Xano
-- **Tokens d'accès** stockés de manière sécurisée
-- **Aucune donnée sensible** en local
+---
 
 ## 🏗️ Architecture
 
+### 🧩 Principe Central : *Workspace-first*
+- **Toutes les actions sont liées à un workspace**, jamais directement à un utilisateur.
+- Un même utilisateur peut gérer plusieurs workspaces.
+- Les autorisations et les ressources sont isolées par workspace.
+
+### 🔗 Intégration Xano
+- Xano gère : utilisateurs, tokens, permissions, logs, base de données principale.
+- Le backend se contente de **traiter les requêtes** et **communiquer avec les APIs sociales**.
+- **Aucune donnée sensible** n’est stockée localement.
+
+### 🧱 Structure Modulaire
+
 ```
-social-media-management-api/
-├── src/
-│   ├── index.ts                     # Point d'entrée de l'application
-│   ├── app.ts                       # Configuration Express
-│   ├── config/
-│   │   ├── database.ts              # Configuration Xano
-│   │   └── environment.ts           # Variables d'environnement
-│   ├── interfaces/
-│   │   └── common.ts                # Toutes les interfaces TypeScript
-│   ├── services/
-│   │   ├── xano.service.ts          # Service d'intégration Xano
-│   │   └── base-network.service.ts  # Service de base pour réseaux sociaux
-│   ├── controllers/
-│   │   ├── posting.controller.ts    # Contrôleur pour posting
-│   │   ├── messaging.controller.ts  # Contrôleur pour messaging
-│   │   └── statistics.controller.ts # Contrôleur pour statistiques
-│   ├── routes/
-│   │   ├── index.ts                 # Routes principales
-│   │   ├── posting.routes.ts        # Routes posting
-│   │   ├── messaging.routes.ts      # Routes messaging
-│   │   └── statistics.routes.ts     # Routes statistiques
-│   ├── middleware/
-│   │   ├── auth.middleware.ts       # Middleware d'authentification
-│   │   ├── validation.middleware.ts # Middleware de validation
-│   │   └── error.middleware.ts      # Middleware de gestion d'erreurs
-│   ├── utils/
-│   │   ├── logger.ts                # Configuration du logger
-│   │   ├── errors.ts                # Classes d'erreurs personnalisées
-│   │   └── validators.ts            # Schémas de validation Joi
-│   └── networks/
-│       └── README.md                # Documentation pour ajout futurs réseaux
-├── tests/
-│   ├── unit/
-│   └── integration/
-├── .env.example
-├── .gitignore
-├── tsconfig.json
-├── jest.config.js
-├── .eslintrc.js
-└── README.md                        # Fichiers de logs
+src/
+├── services/social-networks/     # Un dossier par réseau (Facebook, Instagram, etc.)
+│   └── base/                     # Services abstraits pour standardiser les actions
+├── controllers/                  # Logique métier (posting, messaging, stats)
+├── routes/                       # Définition des endpoints
+└── plugins/                      # Intégrations externes (Xano, PostgreSQL, etc.)
 ```
 
-## 🚦 Endpoints API
+---
 
-### Posting
-```
-POST   /api/posting/:accountId           # Publier un post
-DELETE /api/posting/posts/:postId        # Supprimer un post
-PUT    /api/posting/posts/:postId        # Éditer un post
-GET    /api/posting/:accountId/posts     # Posts du compte
-GET    /api/posting/posts/:postId        # Post spécifique
+## 🔄 Fonctionnalités par Domaine
+
+### 1. 📬 Posting
+
+- `POST /api/posting` – Créer un post  
+- `PUT /api/posting` – Modifier un post  
+- `DELETE /api/posting/{workspace_id}/{channel_id}/{post_id}` – Supprimer un post  
+- `GET /api/posting/{workspace_id}/{channel_id}` – Lister les posts  
+
+### 2. 💬 Messaging
+
+- `POST /api/messaging` – Envoyer un message privé  
+- `GET /api/messaging/{workspace_id}/{channel_id}` – Lister les messages  
+- `PUT /api/messaging/{workspace_id}/{channel_id}/{message_id}/read` – Marquer comme lu  
+
+### 3. 📊 Statistiques *(via PostgreSQL uniquement)*
+
+- `POST /api/stats/workspace/{workspace_id}` – Stats globales  
+- `POST /api/stats/workspace/{workspace_id}/channel/{channel_id}` – Stats d’un canal  
+- `POST /api/stats/workspace/{workspace_id}/channel/{channel_id}/collect` – Déclenche collecte  
+- `GET /api/stats/workspace/{workspace_id}/channel/{channel_id}/post/{post_id}` – Stats d’un post  
+
+> Chaque **métrique du dashboard** doit avoir un **endpoint dédié**, ajoutable dynamiquement.
+
+---
+
+## 📈 Statistiques & Collecte (PostgreSQL)
+
+### 🔢 Table centrale : `metrics`
+
+```sql
+metrics (
+  id SERIAL PRIMARY KEY,
+  workspace_id UUID,
+  channel_id UUID,
+  platform TEXT,
+  post_id TEXT,
+  metric_type TEXT,
+  value INTEGER,
+  metadata JSONB,
+  collected_at TIMESTAMP,
+  post_created_at TIMESTAMP
+)
 ```
 
-### Messaging
-```
-POST   /api/messaging/:accountId         # Envoyer un message
-GET    /api/messaging/:accountId/messages # Messages du compte
-PUT    /api/messaging/messages/:messageId/read # Marquer comme lu
-POST   /api/messaging/:accountId/sync    # Synchroniser messages
+### 🧠 Règles de collecte intelligente (ex. Facebook)
+
+```ts
+const facebookRules: StatsCollectionRule[] = [
+  {
+    post_age_hours: 0,
+    collection_frequency_minutes: 30,
+    max_collections: 48,
+    metrics_to_collect: ['likes', 'comments', 'shares', 'views']
+  },
+  {
+    post_age_hours: 24,
+    collection_frequency_minutes: 120,
+    max_collections: 84,
+    metrics_to_collect: ['likes', 'comments', 'shares']
+  },
+  {
+    post_age_hours: 168,
+    collection_frequency_minutes: 1440,
+    max_collections: 30,
+    metrics_to_collect: ['likes', 'comments']
+  }
+];
 ```
 
-### Statistics
+### ➕ Ajouter un Endpoint Statistique
+
+1. Étendre `MetricType` dans `src/types/metrics.ts`
+2. Ajouter la route dans `src/routes/stats/index.ts`
+3. Implémenter la logique dans `src/controllers/stats.controller.ts`
+4. Brancher dans le service réseau concerné
+
+**Exemple :**
+
+```ts
+fastify.get('/workspace/:workspace_id/conversion-rate', {
+  schema: {
+    params: Type.Object({
+      workspace_id: Type.String()
+    }),
+    querystring: Type.Object({
+      period_days: Type.Number({ minimum: 1, maximum: 365 })
+    })
+  }
+}, statsController.getConversionRate);
 ```
-GET    /api/statistics/posts/:postId     # Stats d'un post
-GET    /api/statistics/accounts/:accountId # Stats d'un compte
-POST   /api/statistics/accounts/:accountId/sync # Sync stats
-```
 
-## 🛠️ Installation
+---
 
-### Prérequis
-- Node.js 18+
-- npm ou yarn
-- Instance Xano configurée
+## 🚀 Installation & Lancement
 
-### Setup
 ```bash
-# Cloner le projet
-git clone <repo-url>
-cd social-media-management-api
-
-# Installer les dépendances
+# Installation des dépendances
 npm install
 
-# Copier et configurer l'environnement
+# Config .env
 cp .env.example .env
-# Éditer .env avec vos paramètres Xano
+# Modifier les variables nécessaires
 
-# Créer le dossier logs
-mkdir logs
+# Migration PostgreSQL
+npm run migrate
 
 # Lancer en développement
 npm run dev
+
+# Lancer en production
+npm run build
+npm start
 ```
 
-### Variables d'environnement requises
-```env
-XANO_API_URL=https://your-xano-instance.com/api:endpoint
-XANO_API_KEY=your-xano-api-key
-```
+---
 
-## 📝 Scripts disponibles
+## 🌐 Ajout d’un Réseau Social
 
-```bash
-npm run dev          # Développement avec hot-reload
-npm run build        # Build production
-npm run start        # Lancer en production
-npm test             # Tests
-npm run lint         # Linting
-npm run lint:fix     # Fix linting
-```
+1. Créer le dossier : `src/services/social-networks/tiktok/`
+2. Implémenter :
+   - `tiktok.posting.service.ts` *(étend BasePostingService)*
+   - `tiktok.messaging.service.ts` *(étend BaseMessagingService)*
+   - `tiktok.stats.service.ts` *(étend BaseStatsService)*
+3. Ajouter le type dans `src/types/channel.ts`
+4. Définir les credentials dans `CredentialConfig`
+5. Mettre à jour la factory des services
 
-## 🔐 Authentification
-
-L'API utilise des tokens Bearer pour l'authentification :
-
-```http
-Authorization: Bearer your-xano-token
-```
-
-## 📊 Gestion des statistiques
-
-### Règles de récupération intelligente
-La fréquence de récupération des statistiques dépend de l'âge du post :
-
-- **Posts < 1h** : Toutes les 5 minutes
-- **Posts 1-24h** : Toutes les 30 minutes  
-- **Posts 1-7 jours** : Toutes les 2 heures
-- **Posts 7-30 jours** : Toutes les 12 heures
-- **Posts > 30 jours** : Une fois par jour
-
-*Ces règles seront personnalisées pour chaque réseau social lors de leur implémentation.*
-
-## 🌐 Ajout de nouveaux réseaux sociaux
-
-### Structure requise
-Chaque réseau doit être implémenté dans un module séparé :
-
-```typescript
-// src/networks/[reseau]/[reseau].service.ts
-export class ReseauService extends BaseNetworkService {
-  constructor() {
-    super(SocialNetworkType.RESEAU, {
-      posting: { enabled: true, /* ... */ },
-      messaging: { enabled: false, /* ... */ },
-      statistics: { enabled: true, /* ... */ }
-    });
-  }
-
-  // Implémenter toutes les méthodes abstraites
-  async publishPost(account, request) { /* ... */ }
-  async deletePost(account, postId) { /* ... */ }
-  // ... autres méthodes
-}
-```
-
-### Enregistrement
-```typescript
-// src/networks/index.ts
-import { networkRegistry } from '../services/base-network.service';
-import { ReseauService } from './reseau/reseau.service';
-
-export const initializeNetworkServices = () => {
-  networkRegistry.register(new ReseauService());
-};
-```
-
-## 📋 Réseaux sociaux supportés
-
-**Actuellement : Aucun** *(Structure prête pour l'implémentation)*
-
-**Prévus :**
-- Facebook
-- Instagram  
-- Twitter/X
-- LinkedIn
-- TikTok
-- YouTube
-- Pinterest
-
-## 🔧 Structure des données
-
-### Post
-```typescript
-interface Post {
-  id: string;
-  networkType: SocialNetworkType;
-  accountId: string;
-  content: PostContent;
-  status: PostStatus;
-  scheduledAt?: Date;
-  publishedAt?: Date;
-  networkPostId?: string;
-}
-```
-
-### Message
-```typescript
-interface Message {
-  id: string;
-  networkType: SocialNetworkType;
-  conversationId: string;
-  content: MessageContent;
-  isIncoming: boolean;
-  isRead: boolean;
-  sentAt: Date;
-}
-```
-
-### Statistiques
-```typescript
-interface PostStatistics {
-  postId: string;
-  metrics: PostMetrics;
-  lastUpdated: Date;
-}
-
-interface PostMetrics {
-  views?: number;
-  likes?: number;
-  shares?: number;
-  comments?: number;
-  // ... autres métriques
-}
-```
+---
 
 ## 🛡️ Sécurité
 
-### Mesures implémentées
-- **Rate limiting** : 100 requêtes/15min par IP
-- **Helmet** : Headers de sécurité
-- **CORS** : Origines configurables
-- **Validation** : Joi pour toutes les entrées
-- **Logging** : Winston avec rotation des logs
+- Middleware de validation du `workspace_id`
+- Rate limiting intégré
+- Sécurisation des headers avec Helmet
+- Aucun stockage local de tokens
+- Centralisation des logs dans Xano
 
-### Gestion des erreurs
-```typescript
-// Types d'erreurs personnalisées
-ValidationError (400)
-AuthenticationError (401)
-NotFoundError (404)
-NetworkError (502)
-XanoServiceError (503)
-```
+---
 
-## 📈 Monitoring & Logs
+## 📊 Monitoring & Logs
 
-### Endpoints de santé
-```
-GET /health              # Status serveur
-GET /api/               # Info API
-GET /api/status         # Status services réseaux
-```
+- Logs structurés via [Pino](https://getpino.io/)
+- Activités trackées dans Xano
+- Gestion d’erreurs détaillées avec contexte
+- Métriques de performance stockées en PostgreSQL
 
-### Logs
-- **error.log** : Erreurs uniquement
-- **combined.log** : Tous les logs
-- **Console** : En développement seulement
+---
 
 ## 🧪 Tests
 
@@ -291,128 +186,19 @@ GET /api/status         # Status services réseaux
 # Tests unitaires
 npm test
 
-# Tests avec couverture
-npm run test:coverage
-
 # Tests d'intégration
 npm run test:integration
+
+# Rapport de couverture
+npm run test:coverage
 ```
 
-Structure des tests :
-```
-tests/
-├── unit/
-│   ├── services/
-│   ├── controllers/
-│   └── utils/
-├── integration/
-│   └── api/
-└── setup.ts
-```
+---
 
 ## 📚 Documentation API
 
-Une fois démarré, l'API expose des informations sur ses endpoints :
+Une documentation Swagger est disponible sur `/docs` en mode développement (à activer via plugin Swagger).
 
-```bash
-curl http://localhost:3000/api
-```
+---
 
-## 🚀 Déploiement
-
-### Production
-```bash
-# Build
-npm run build
-
-# Variables d'environnement
-export NODE_ENV=production
-export XANO_API_URL=your-production-url
-export XANO_API_KEY=your-production-key
-
-# Lancer
-npm start
-```
-
-### Docker (optionnel)
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY dist ./dist
-CMD ["npm", "start"]
-```
-
-## 🔄 Règles de développement
-
-### Directives non négociables
-1. **Séparation modulaire** : Chaque réseau dans un fichier séparé
-2. **Scalabilité** : Architecture extensible et maintenable
-3. **Sécurité** : Aucune donnée sensible en local
-4. **Xano-first** : Toute persistance via Xano
-
-### Standards de code
-- **TypeScript strict** : Types explicites partout
-- **ESLint** : Code standardisé
-- **Joi validation** : Validation robuste des entrées
-- **Error handling** : Gestion d'erreurs cohérente
-- **Logging** : Traçabilité complète
-
-## 🤝 Contribution
-
-### Workflow
-1. Créer une branche pour le nouveau réseau
-2. Implémenter selon `src/networks/README.md`
-3. Ajouter les tests correspondants
-4. Mettre à jour la documentation
-5. Créer une PR
-
-### Checklist pour nouveau réseau
-- [ ] Service qui étend `BaseNetworkService`
-- [ ] Toutes les méthodes abstraites implémentées
-- [ ] Capacités correctement définies
-- [ ] Tests unitaires et d'intégration
-- [ ] Documentation des spécificités
-- [ ] Enregistrement dans le registry
-
-## 📞 Support
-
-Pour toute question sur cette base d'API :
-1. Consulter le `src/networks/README.md` pour l'ajout de réseaux
-2. Vérifier les logs dans le dossier `logs/`
-3. Tester les endpoints de santé
-
-## 🔮 Roadmap
-
-### Phase 1 : Base (✅ Terminée)
-- [x] Architecture modulaire
-- [x] Intégration Xano
-- [x] API REST complète
-- [x] Système d'authentification
-- [x] Gestion d'erreurs
-- [x] Logging et monitoring
-
-### Phase 2 : Premiers réseaux
-- [ ] Facebook/Meta
-- [ ] Instagram
-- [ ] Twitter/X
-
-### Phase 3 : Fonctionnalités avancées
-- [ ] Webhooks pour synchronisation temps réel
-- [ ] Système de cache Redis
-- [ ] Métriques Prometheus
-- [ ] Rate limiting avancé par réseau
-
-### Phase 4 : Réseaux additionnels
-- [ ] LinkedIn
-- [ ] TikTok
-- [ ] YouTube
-- [ ] Pinterest
-
-## 🏷️ Versions
-
-**v1.0.0** - Structure de base
-- API complète sans réseaux implémentés
-- Prêt pour ajout modulaire des réseaux
-- Documentation complète
+> Cette architecture est pensée pour être **scalable**, **maintenable** et **modulaire**, afin d’intégrer de nouveaux réseaux sociaux et de nouvelles métriques sans refonte.

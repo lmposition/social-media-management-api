@@ -1,203 +1,366 @@
-// src/controllers/posting.controller.ts
-import { Request, Response, NextFunction } from 'express';
-import { xanoService } from '../services/xano.service';
-import { networkRegistry } from '../services/base-network.service';
-import { 
-  ApiResponse, 
-  PostingRequest, 
-  SocialNetworkType 
-} from '../interfaces/common';
-import { logger } from '../utils/logger';
-import { ValidationError, NotFoundError, NetworkError } from '../utils/errors';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { BasePostingService, PostData } from '../services/social-networks/base/base.posting.service.js';
+
+interface Post {
+  id: string;
+  content: string;
+  platform_post_id: string;
+  created_at: string;
+  updated_at?: string;
+  status: string;
+  url?: string;
+  media_urls?: string[];
+  scheduled_at?: string;
+  metadata?: Record<string, any>;
+  engagement?: {
+    likes: number;
+    comments: number;
+    shares: number;
+    views: number;
+  };
+}
 
 export class PostingController {
-  // ============================================================================
-  // PUBLIER UN POST
-  // ============================================================================
-  async publishPost(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async createPost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, ...postData } = request.body as any;
+    
     try {
-      const { accountId } = req.params;
-      const postingRequest: PostingRequest = req.body;
-
-      // Récupérer le compte depuis Xano
-      const account = await xanoService.getNetworkAccount(accountId);
+      // Validation de l'accès au workspace
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(
+        workspace_id,
+        'user_id' // À récupérer du token JWT ou header
+      );
       
-      // Vérifier que le réseau est supporté
-      if (!networkRegistry.isSupported(account.networkType)) {
-        throw new ValidationError(`Réseau ${account.networkType} non supporté`);
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
       }
 
-      // Obtenir le service réseau approprié
-      const networkService = networkRegistry.get(account.networkType);
-
-      // Vérifier les capacités de posting
-      if (!networkService.supportsPosting()) {
-        throw new ValidationError(`Le posting n'est pas supporté pour ${account.networkType}`);
-      }
-
-      // Publier le post
-      const result = await networkService.publishPost(account, postingRequest);
-
-      // Sauvegarder le post dans Xano
-      const post = {
-        id: result.postId,
-        networkType: account.networkType,
-        accountId: account.id,
-        content: postingRequest.content,
-        status: result.status,
-        networkPostId: result.networkPostId,
-        publishedAt: result.publishedAt,
-        createdAt: new Date(),
-        updatedAt: new Date()
+      // Récupération du channel depuis Xano
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // Ici, on créerait une instance du service spécifique au réseau social
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const result = await postingService.createPost(postData as PostData);
+      
+      // Pour l'instant, on simule la réponse
+      const result = {
+        platform_post_id: 'mock_post_id',
+        status: 'published' as const,
+        url: 'https://example.com/post'
       };
 
-      await xanoService.savePosts([post]);
-
-      const response: ApiResponse = {
-        success: true,
-        data: result,
-        message: 'Post publié avec succès',
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(201).json(response);
-      logger.info(`Post publié: ${result.postId} sur ${account.networkType}`);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // ============================================================================
-  // SUPPRIMER UN POST
-  // ============================================================================
-  async deletePost(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { postId } = req.params;
-
-      // Récupérer le post depuis Xano
-      const post = await xanoService.getPost(postId);
-      
-      // Récupérer le compte
-      const account = await xanoService.getNetworkAccount(post.accountId);
-
-      // Obtenir le service réseau
-      const networkService = networkRegistry.get(account.networkType);
-
-      // Supprimer sur le réseau social
-      if (post.networkPostId) {
-        await networkService.deletePost(account, post.networkPostId);
-      }
-
-      // Supprimer de Xano
-      await xanoService.deletePost(postId);
-
-      const response: ApiResponse = {
-        success: true,
-        message: 'Post supprimé avec succès',
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
-      logger.info(`Post supprimé: ${postId}`);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // ============================================================================
-  // ÉDITER UN POST
-  // ============================================================================
-  async editPost(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { postId } = req.params;
-      const postingRequest: PostingRequest = req.body;
-
-      // Récupérer le post depuis Xano
-      const post = await xanoService.getPost(postId);
-      
-      // Récupérer le compte
-      const account = await xanoService.getNetworkAccount(post.accountId);
-
-      // Obtenir le service réseau
-      const networkService = networkRegistry.get(account.networkType);
-
-      // Vérifier si l'édition est supportée
-      if (!networkService.getCapabilities().posting.supportsEditing) {
-        throw new ValidationError(`L'édition n'est pas supportée pour ${account.networkType}`);
-      }
-
-      // Éditer sur le réseau social
-      let result;
-      if (post.networkPostId) {
-        result = await networkService.editPost(account, post.networkPostId, postingRequest);
-      }
-
-      // Mettre à jour dans Xano
-      const updatedPost = await xanoService.updatePost(postId, {
-        content: postingRequest.content,
-        updatedAt: new Date()
+      // Log de l'activité dans Xano
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'create_post',
+        resource_type: 'post',
+        resource_id: result.platform_post_id,
+        metadata: { channel_id, platform: channel.platform }
       });
 
-      const response: ApiResponse = {
-        success: true,
-        data: { post: updatedPost, networkResult: result },
-        message: 'Post modifié avec succès',
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
-      logger.info(`Post modifié: ${postId}`);
+      return reply.send({ success: true, data: result });
     } catch (error) {
-      next(error);
+      request.log.error(error);
+      return reply.status(500).send({ 
+        error: error instanceof Error ? error.message : 'Internal server error' 
+      });
     }
   }
 
-  // ============================================================================
-  // RÉCUPÉRER LES POSTS D'UN COMPTE
-  // ============================================================================
-  async getPostsByAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updatePost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id, ...updateData } = request.body as any;
+    
     try {
-      const { accountId } = req.params;
-      const { limit = 50, offset = 0 } = req.query;
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
 
-      const posts = await xanoService.getPostsByAccount(
-        accountId, 
-        parseInt(limit as string), 
-        parseInt(offset as string)
-      );
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const result = await postingService.updatePost(post_id, updateData);
+      
+      const result = {
+        platform_post_id: post_id,
+        status: 'published' as const
+      };
 
-      const response: ApiResponse = {
-        success: true,
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'update_post',
+        resource_type: 'post',
+        resource_id: post_id,
+        metadata: { channel_id, platform: channel.platform }
+      });
+
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+
+  async deletePost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id } = request.params as any;
+    
+    try {
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
+
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const result = await postingService.deletePost(post_id);
+
+      const result = { success: true };
+
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'delete_post',
+        resource_type: 'post',
+        resource_id: post_id,
+        metadata: { channel_id, platform: channel.platform }
+      });
+
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+
+  async getPosts(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id } = request.params as any;
+    const { limit = 20, offset = 0, status, sort } = request.query as any;
+    
+    try {
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
+
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const posts = await postingService.getPosts(limit, offset, { status, sort });
+
+      const posts: Post[] = []; // Simulation pour l'instant
+
+      // Simulation de pagination
+      const total = 0;
+      const hasMore = offset + limit < total;
+
+      return reply.send({ 
+        success: true, 
         data: posts,
-        timestamp: new Date().toISOString()
-      };
-
-      res.status(200).json(response);
+        pagination: {
+          total,
+          limit,
+          offset,
+          has_more: hasMore
+        }
+      });
     } catch (error) {
-      next(error);
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Internal server error' });
     }
   }
 
-  // ============================================================================
-  // RÉCUPÉRER UN POST SPÉCIFIQUE
-  // ============================================================================
-  async getPost(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getPost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id } = request.params as any;
+    
     try {
-      const { postId } = req.params;
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
 
-      const post = await xanoService.getPost(postId);
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const post = await postingService.getPost(post_id);
 
-      const response: ApiResponse = {
-        success: true,
-        data: post,
-        timestamp: new Date().toISOString()
+      // Simulation d'un post pour l'instant
+      const post: Post = {
+        id: post_id,
+        content: 'Sample post content',
+        platform_post_id: post_id,
+        created_at: new Date().toISOString(),
+        status: 'published',
+        url: 'https://example.com/post/' + post_id,
+        engagement: {
+          likes: 42,
+          comments: 8,
+          shares: 3,
+          views: 156
+        }
       };
 
-      res.status(200).json(response);
+      return reply.send({ success: true, data: post });
     } catch (error) {
-      next(error);
+      request.log.error(error);
+      if (error instanceof Error && error.message.includes('not found')) {
+        return reply.status(404).send({ error: 'Post not found' });
+      }
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+
+  async schedulePost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id } = request.params as any;
+    const { scheduled_at } = request.body as any;
+    
+    try {
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
+
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // Validation de la date de programmation
+      const scheduledDate = new Date(scheduled_at);
+      if (scheduledDate <= new Date()) {
+        return reply.status(400).send({ error: 'Scheduled date must be in the future' });
+      }
+
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const result = await postingService.schedulePost(post_id, scheduled_at);
+
+      const result = {
+        platform_post_id: post_id,
+        status: 'scheduled' as const,
+        scheduled_at: scheduled_at
+      };
+
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'schedule_post',
+        resource_type: 'post',
+        resource_id: post_id,
+        metadata: { channel_id, platform: channel.platform, scheduled_at }
+      });
+
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      request.log.error(error);
+      if (error instanceof Error && error.message.includes('not found')) {
+        return reply.status(404).send({ error: 'Post not found' });
+      }
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+
+  async publishPost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id } = request.params as any;
+    
+    try {
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
+
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const result = await postingService.publishPost(post_id);
+
+      const result = {
+        platform_post_id: post_id,
+        status: 'published' as const,
+        url: 'https://example.com/post/' + post_id,
+        published_at: new Date().toISOString()
+      };
+
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'publish_post',
+        resource_type: 'post',
+        resource_id: post_id,
+        metadata: { channel_id, platform: channel.platform }
+      });
+
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      request.log.error(error);
+      if (error instanceof Error && error.message.includes('not found')) {
+        return reply.status(404).send({ error: 'Post not found' });
+      }
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+
+  async duplicatePost(request: FastifyRequest, reply: FastifyReply) {
+    const { workspace_id, channel_id, post_id } = request.params as any;
+    const { target_channel_id, modifications } = request.body as any || {};
+    
+    try {
+      const hasAccess = await request.server.xano.validateWorkspaceAccess(workspace_id, 'user_id');
+      
+      if (!hasAccess) {
+        return reply.status(403).send({ error: 'Access denied to workspace' });
+      }
+
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      
+      // Si un channel cible est spécifié, vérifier qu'il existe et qu'on y a accès
+      let targetChannel = channel;
+      if (target_channel_id && target_channel_id !== channel_id) {
+        targetChannel = await request.server.xano.getChannel(target_channel_id, workspace_id);
+      }
+
+      // const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      // const originalPost = await postingService.getPost(post_id);
+      
+      // const targetPostingService = SocialNetworkServiceFactory.createPostingService(targetChannel);
+      // const duplicatedPost = await targetPostingService.createPost({
+      //   ...originalPost,
+      //   ...modifications
+      // });
+
+      // Simulation pour l'instant
+      const duplicatedPostId = 'duplicated_' + post_id + '_' + Date.now();
+      const result = {
+        original_post_id: post_id,
+        duplicated_post_id: duplicatedPostId,
+        status: 'draft'
+      };
+
+      await request.server.xano.logActivity({
+        workspace_id,
+        user_id: 'user_id',
+        action: 'duplicate_post',
+        resource_type: 'post',
+        resource_id: duplicatedPostId,
+        metadata: { 
+          channel_id, 
+          target_channel_id: targetChannel.id,
+          original_post_id: post_id,
+          platform: targetChannel.platform 
+        }
+      });
+
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      request.log.error(error);
+      if (error instanceof Error && error.message.includes('not found')) {
+        return reply.status(404).send({ error: 'Post not found' });
+      }
+      return reply.status(500).send({ error: 'Internal server error' });
     }
   }
 }
-
-export const postingController = new PostingController();
