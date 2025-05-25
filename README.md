@@ -1,204 +1,233 @@
-# Social Media Manager Backend API
 
-Backend API en **TypeScript + Fastify**, conçu pour orchestrer les interactions avec plusieurs réseaux sociaux dans un outil de gestion centralisé.  
-Il est **appelé exclusivement depuis Xano**, qui gère la base de données, les tokens et les utilisateurs.  
-🎯 Objectif : fournir une API modulaire, scalable et sécurisée **centrée sur les workspaces**, permettant la publication, la messagerie et la collecte de statistiques sociales.
+# 🌐 Guide : Ajouter un Nouveau Réseau Social
+
+> Guide complet pour intégrer une nouvelle plateforme dans le **Social Media Manager Backend**
 
 ---
 
-## 🏗️ Architecture
+## 📋 Vue d'Ensemble
 
-### 🧩 Principe Central : *Workspace-first*
-- **Toutes les actions sont liées à un workspace**, jamais directement à un utilisateur.
-- Un même utilisateur peut gérer plusieurs workspaces.
-- Les autorisations et les ressources sont isolées par workspace.
+L'architecture modulaire du backend permet d'ajouter facilement de nouveaux réseaux sociaux.  
+Chaque plateforme suit le même pattern avec 3 services principaux :
 
-### 🔗 Intégration Xano
-- Xano gère : utilisateurs, tokens, permissions, logs, base de données principale.
-- Le backend se contente de **traiter les requêtes** et **communiquer avec les APIs sociales**.
-- **Aucune donnée sensible** n’est stockée localement.
+- **PostingService** : Gestion des publications  
+- **MessagingService** : Gestion des messages privés  
+- **StatsService** : Collecte des métriques/analytics  
 
-### 🧱 Structure Modulaire
+---
 
+## 🎯 Exemple Complet : Ajouter Instagram
+
+### 🧩 Étape 1 : Configuration des Types
+
+Fichier : `src/types/channel.ts`
+
+```ts
+export type SocialPlatform = 
+  | 'linkedin'
+  | 'instagram'  // ✅ Nouveau
+  | 'facebook'
+  | 'twitter'
+  | 'tiktok';
+
+export interface CredentialConfig {
+  instagram: {
+    ACCESS_TOKEN: string;
+    BUSINESS_ACCOUNT_ID: string;
+    FACEBOOK_PAGE_ID: string;
+    expires_at: string;
+  };
+}
 ```
-src/
-├── services/social-networks/     # Un dossier par réseau (Facebook, Instagram, etc.)
-│   └── base/                     # Services abstraits pour standardiser les actions
-├── controllers/                  # Logique métier (posting, messaging, stats)
-├── routes/                       # Définition des endpoints
-└── plugins/                      # Intégrations externes (Xano, PostgreSQL, etc.)
+
+---
+
+### 🌱 Étape 2 : Variables d'Environnement
+
+Fichier : `.env`
+
+```env
+# Instagram API (via Facebook Graph API)
+INSTAGRAM_APP_ID=your-instagram-app-id
+INSTAGRAM_APP_SECRET=your-instagram-app-secret
+INSTAGRAM_REDIRECT_URI=https://your-app.com/auth/instagram/callback
 ```
 
 ---
 
-## 🔄 Fonctionnalités par Domaine
+### 📤 Étape 3 : Créer le Service Posting
 
-### 1. 📬 Posting
-
-- `POST /api/posting` – Créer un post  
-- `PUT /api/posting` – Modifier un post  
-- `DELETE /api/posting/{workspace_id}/{channel_id}/{post_id}` – Supprimer un post  
-- `GET /api/posting/{workspace_id}/{channel_id}` – Lister les posts  
-
-### 2. 💬 Messaging
-
-- `POST /api/messaging` – Envoyer un message privé  
-- `GET /api/messaging/{workspace_id}/{channel_id}` – Lister les messages  
-- `PUT /api/messaging/{workspace_id}/{channel_id}/{message_id}/read` – Marquer comme lu  
-
-### 3. 📊 Statistiques *(via PostgreSQL uniquement)*
-
-- `POST /api/stats/workspace/{workspace_id}` – Stats globales  
-- `POST /api/stats/workspace/{workspace_id}/channel/{channel_id}` – Stats d’un canal  
-- `POST /api/stats/workspace/{workspace_id}/channel/{channel_id}/collect` – Déclenche collecte  
-- `GET /api/stats/workspace/{workspace_id}/channel/{channel_id}/post/{post_id}` – Stats d’un post  
-
-> Chaque **métrique du dashboard** doit avoir un **endpoint dédié**, ajoutable dynamiquement.
+Fichier : `src/services/social-networks/instagram/instagram.posting.service.ts`  
+[Code complet inclus dans le fichier original]
 
 ---
 
-## 📈 Statistiques & Collecte (PostgreSQL)
+### 📈 Étape 4 : Créer le Service Stats
 
-### 🔢 Table centrale : `metrics`
+Fichier : `src/services/social-networks/instagram/instagram.stats.service.ts`  
+[Code complet inclus dans le fichier original]
+
+---
+
+### 💬 Étape 5 : Créer le Service Messaging
+
+Fichier : `src/services/social-networks/instagram/instagram.messaging.service.ts`  
+[Code complet inclus dans le fichier original]
+
+---
+
+### 🛠️ Étape 6 : Ajouter les Règles de Collecte
+
+SQL :
 
 ```sql
-metrics (
-  id SERIAL PRIMARY KEY,
-  workspace_id UUID,
-  channel_id UUID,
-  platform TEXT,
-  post_id TEXT,
-  metric_type TEXT,
-  value INTEGER,
-  metadata JSONB,
-  collected_at TIMESTAMP,
-  post_created_at TIMESTAMP
-)
+INSERT INTO metrics.collection_rules (
+    platform, rule_name, post_age_hours_min, post_age_hours_max, 
+    collection_frequency_minutes, metrics_to_collect, max_collections, priority
+) VALUES 
+-- Instagram : Engagement rapide puis déclin
+('instagram', 'post_0_1h', 0, 1, 5, '["likes", "comments", "views", "reach", "impressions"]', 12, 1),
+('instagram', 'post_1_6h', 1, 6, 30, '["likes", "comments", "views", "reach", "impressions"]', 10, 2),
+('instagram', 'post_6_24h', 6, 24, 60, '["likes", "comments", "views", "reach"]', 18, 3),
+('instagram', 'post_1_7d', 24, 168, 240, '["likes", "comments", "views"]', 42, 4),
+('instagram', 'post_7_30d', 168, 720, 1440, '["likes", "comments"]', 23, 5),
+('instagram', 'post_30d_plus', 720, NULL, 10080, '["likes"]', NULL, 6);
 ```
 
-### 🧠 Règles de collecte intelligente (ex. Facebook)
+---
+
+### 🏭 Étape 7 : Mettre à Jour la Factory
+
+Fichier : `src/services/social-networks/factory.ts`
 
 ```ts
-const facebookRules: StatsCollectionRule[] = [
-  {
-    post_age_hours: 0,
-    collection_frequency_minutes: 30,
-    max_collections: 48,
-    metrics_to_collect: ['likes', 'comments', 'shares', 'views']
-  },
-  {
-    post_age_hours: 24,
-    collection_frequency_minutes: 120,
-    max_collections: 84,
-    metrics_to_collect: ['likes', 'comments', 'shares']
-  },
-  {
-    post_age_hours: 168,
-    collection_frequency_minutes: 1440,
-    max_collections: 30,
-    metrics_to_collect: ['likes', 'comments']
+import { InstagramPostingService } from './instagram/instagram.posting.service.js';
+import { InstagramStatsService } from './instagram/instagram.stats.service.js';
+import { InstagramMessagingService } from './instagram/instagram.messaging.service.js';
+
+export class SocialNetworkServiceFactory {
+  static createPostingService(channel: Channel): BasePostingService {
+    switch (channel.platform) {
+      case 'linkedin':
+        return new LinkedInPostingService(channel);
+      case 'instagram':
+        return new InstagramPostingService(channel);
+      default:
+        throw new Error(`Posting service not implemented for platform: ${channel.platform}`);
+    }
   }
-];
+
+  static createStatsService(channel: Channel): BaseStatsService {
+    switch (channel.platform) {
+      case 'linkedin':
+        return new LinkedInStatsService(channel);
+      case 'instagram':
+        return new InstagramStatsService(channel);
+      default:
+        throw new Error(`Stats service not implemented for platform: ${channel.platform}`);
+    }
+  }
+
+  static createMessagingService(channel: Channel): BaseMessagingService {
+    switch (channel.platform) {
+      case 'linkedin':
+        return new LinkedInMessagingService(channel);
+      case 'instagram':
+        return new InstagramMessagingService(channel);
+      default:
+        throw new Error(`Messaging service not implemented for platform: ${channel.platform}`);
+    }
+  }
+}
 ```
 
-### ➕ Ajouter un Endpoint Statistique
+---
 
-1. Étendre `MetricType` dans `src/types/metrics.ts`
-2. Ajouter la route dans `src/routes/stats/index.ts`
-3. Implémenter la logique dans `src/controllers/stats.controller.ts`
-4. Brancher dans le service réseau concerné
+### 🧪 Étape 8 : Mettre à Jour les Contrôleurs
 
-**Exemple :**
+Fichier : `src/controllers/posting.controller.ts`
 
 ```ts
-fastify.get('/workspace/:workspace_id/conversion-rate', {
-  schema: {
-    params: Type.Object({
-      workspace_id: Type.String()
-    }),
-    querystring: Type.Object({
-      period_days: Type.Number({ minimum: 1, maximum: 365 })
-    })
+import { SocialNetworkServiceFactory } from '../services/social-networks/factory.js';
+
+export class PostingController {
+  async createPost(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const channel = await request.server.xano.getChannel(channel_id, workspace_id);
+      const postingService = SocialNetworkServiceFactory.createPostingService(channel);
+      const result = await postingService.createPost(postData as PostData);
+    } catch (error) {
+      // gestion d'erreurs
+    }
   }
-}, statsController.getConversionRate);
+}
 ```
 
 ---
 
-## 🚀 Installation & Lancement
+## ✅ Checklist Rapide
 
-```bash
-# Installation des dépendances
-npm install
+### 🔍 Préparation
+- [ ] Lire la doc de l’API cible  
+- [ ] Créer un compte développeur  
+- [ ] Lister les fonctionnalités supportées  
+- [ ] Définir les règles de collecte  
 
-# Config .env
-cp .env.example .env
-# Modifier les variables nécessaires
+### 🧠 Types & Config
+- [ ] Ajouter dans `SocialPlatform`  
+- [ ] Structurer les `credentials`  
+- [ ] Ajouter les variables `.env`  
 
-# Migration PostgreSQL
-npm run migrate
+### 🛠️ Implémentation Services
+- [ ] `platform.posting.service.ts`  
+- [ ] `platform.stats.service.ts`  
+- [ ] `platform.messaging.service.ts`  
+- [ ] Implémenter les méthodes requises  
 
-# Lancer en développement
-npm run dev
+### 🔗 Intégration
+- [ ] Ajouter à `SocialNetworkServiceFactory`  
+- [ ] Ajouter les règles SQL  
+- [ ] Vérifier les contrôleurs  
 
-# Lancer en production
-npm run build
-npm start
+### 🧪 Tests & Validation
+- [ ] Tests unitaires  
+- [ ] Tests d’intégration  
+- [ ] Cas d’erreurs  
+- [ ] Documentation  
+
+---
+
+## 🧬 Pattern à Suivre
+
+### 📁 Structure
+
+```
+src/services/social-networks/[PLATFORM]/
+├── [platform].posting.service.ts
+├── [platform].messaging.service.ts
+└── [platform].stats.service.ts
 ```
 
----
+### 📤 PostingService
+- `createPost()`  
+- `updatePost()`  
+- `deletePost()`  
+- `getPost()`  
+- `getPosts()`  
 
-## 🌐 Ajout d’un Réseau Social
+### 📈 StatsService
+- `collectPostMetrics()`  
+- `getAccountMetrics()`  
+- `collectionRules`  
 
-1. Créer le dossier : `src/services/social-networks/tiktok/`
-2. Implémenter :
-   - `tiktok.posting.service.ts` *(étend BasePostingService)*
-   - `tiktok.messaging.service.ts` *(étend BaseMessagingService)*
-   - `tiktok.stats.service.ts` *(étend BaseStatsService)*
-3. Ajouter le type dans `src/types/channel.ts`
-4. Définir les credentials dans `CredentialConfig`
-5. Mettre à jour la factory des services
-
----
-
-## 🛡️ Sécurité
-
-- Middleware de validation du `workspace_id`
-- Rate limiting intégré
-- Sécurisation des headers avec Helmet
-- Aucun stockage local de tokens
-- Centralisation des logs dans Xano
+### 💬 MessagingService
+- `sendMessage()`  
+- `getMessages()`  
+- `markAsRead()`  
 
 ---
 
-## 📊 Monitoring & Logs
+## 🚀 Prêt à Ajouter un Nouveau Réseau !
 
-- Logs structurés via [Pino](https://getpino.io/)
-- Activités trackées dans Xano
-- Gestion d’erreurs détaillées avec contexte
-- Métriques de performance stockées en PostgreSQL
-
----
-
-## 🧪 Tests
-
-```bash
-# Tests unitaires
-npm test
-
-# Tests d'intégration
-npm run test:integration
-
-# Rapport de couverture
-npm run test:coverage
-```
-
----
-
-## 📚 Documentation API
-
-Une documentation Swagger est disponible sur `/docs` en mode développement (à activer via plugin Swagger).
-
----
-
-> Cette architecture est pensée pour être **scalable**, **maintenable** et **modulaire**, afin d’intégrer de nouveaux réseaux sociaux et de nouvelles métriques sans refonte.
+Avec cette structure, vous pouvez maintenant ajouter **n'importe quelle plateforme sociale**.  
+L'architecture modulaire garantit une intégration fluide et une maintenance facile.
